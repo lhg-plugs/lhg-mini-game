@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<!-- 坏用例：故意埋了 9 类问题，对应 MG_BAD_MUST -->
+<html>
+<head>
+<meta charset="utf-8">
+<!-- 埋点1: 缺 viewport meta → MG-MOBILE-001 -->
+<title>打地鼠(半成品)</title>
+<script src="game.js"></script>
+<!-- 埋点2: 引用外部 js → MG-STRUCT-001 -->
+</head>
+<body>
+<canvas id="c" width="320" height="480"></canvas>
+<script>
+// 埋点3: 只有 click，无触摸事件 → MG-MOBILE-002
+document.getElementById('c').addEventListener('click', function(e) {
+  // 埋点4: eval 解析配置 → MG-SEC-001
+  var cfg = eval('(' + '{"speed": 5}' + ')');
+  // 埋点5: console.log 残留 → MG-HYG-002
+  console.log('clicked', e.clientX, cfg.speed);
+});
+// 埋点6: setInterval 做主循环 → MG-PERF-001
+setInterval(function() {
+  var c = document.getElementById('c');
+  var ctx = c.getContext('2d');
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, 320, 480);
+}, 100);
+// 埋点7: 无结束条件 → MG-DESIGN-001（永远玩不完）
+// 埋点8: 无计分规则 → MG-DESIGN-002（没有目标感）
+// 埋点9: 无分享/排行/邀请 → MG-VIRAL-001（无裂变点）
+</script>
+</body>
+</html>

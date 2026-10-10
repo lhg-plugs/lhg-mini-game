@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "lhg-mini-game",
+  "displayName": "LHG H5游戏专家",
+  "description": "小白一句话→可玩的H5小游戏：玩法模板匹配、单文件Canvas代码生成、移动端触摸优化、分享裂变点设计，零构建。",
+  "version": "1.0.0",
+  "author": {
+    "name": "刘洪光",
+    "url": "https://github.com/lhg-skills"
+  },
+  "homepage": "https://github.com/lhg-plugs/lhg-mini-game",
+  "repository": "https://github.com/lhg-plugs/lhg-mini-game",
+  "license": "MIT",
+  "keywords": [
+    "mini-game",
+    "h5-game",
+    "html5",
+    "canvas",
+    "wechat-share",
+    "viral",
+    "chinese",
+    "beginner"
+  ]
+}

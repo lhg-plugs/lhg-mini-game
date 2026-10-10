@@ -1,0 +1,1 @@
+{"$schema":"https://json.schemastore.org/claude-code-marketplace.json","name":"lhg-plugs","owner":{"name":"刘洪光"},"plugins":[{"description":"小白一句话→可玩的H5小游戏：玩法模板匹配、单文件Canvas代码生成、移动端触摸优化、分享裂变点设计","name":"lhg-mini-game","source":"./"}]}

@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<!-- 好用例：单文件 H5 小游戏骨架（接水果），零 blocker 零 warning -->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>接水果 - 60 秒挑战</title>
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #1a1a2e; }
+  #game { display: block; width: 100vw; height: 100vh; touch-action: none; }
+  #ui { position: fixed; top: 0; left: 0; right: 0; display: flex; justify-content: space-between;
+        padding: 12px 16px; color: #fff; font: 16px/1.4 system-ui; pointer-events: none; }
+  #panel { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+           background: rgba(0,0,0,.6); }
+  #panel.hidden { display: none; }
+  #card { background: #fff; border-radius: 16px; padding: 28px 32px; text-align: center; }
+  #card h1 { margin: 0 0 8px; font-size: 22px; }
+  #card p { color: #666; margin: 6px 0; }
+  #card button { margin: 6px 4px 0; padding: 10px 22px; font-size: 16px; border: 0; border-radius: 999px;
+                 background: #ff5a5a; color: #fff; }
+  #card button.ghost { background: #eee; color: #333; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<canvas id="poster" width="750" height="1000" style="display:none"></canvas>
+<a id="dl" style="display:none"></a>
+<div id="ui"><span id="score">分数 0</span><span id="time">60s</span><span id="best">最高分 0</span></div>
+<div id="panel"><div id="card">
+  <h1 id="title">接水果</h1>
+  <p id="desc">左右滑动移动篮子，60 秒内接到尽可能多的水果！</p>
+  <p id="result"></p>
+  <button id="btnStart">开始游戏</button>
+  <button id="btnShare" class="ghost" style="display:none">分享战绩</button>
+  <button id="btnMute" class="ghost">🔊</button>
+</div></div>
+<script>
+(function () {
+  'use strict';
+  // ---- 分辨率适配（DPR） ----
+  var canvas = document.getElementById('game');
+  var ctx = canvas.getContext('2d');
+  var dpr = Math.min(window.devicePixelRatio || 1, 2);
+  function resize() {
+    canvas.width = Math.floor(innerWidth * dpr);
+    canvas.height = Math.floor(innerHeight * dpr);
+    W = innerWidth; H = innerHeight;
+  }
+  var W = 0, H = 0;
+  resize();
+  addEventListener('resize', resize);
+  // 横竖屏提示：竖屏体验最佳
+  addEventListener('orientationchange', function () {
+    document.getElementById('desc').textContent =
+      (screen.orientation && screen.orientation.type.indexOf('landscape') === 0)
+        ? '建议竖屏游玩，体验更佳' : '左右滑动移动篮子，60 秒内接到尽可能多的水果！';
+  });
+
+  // ---- 音效（WebAudio 合成，零外部资源；带静音开关） ----
+  var actx = null, muted = false;
+  document.getElementById('btnMute').addEventListener('click', function () {
+    muted = !muted;
+    this.textContent = muted ? '🔇' : '🔊';
+  });
+  function beep(freq) {
+    if (muted) return;
+    try {
+      actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+      var o = actx.createOscillator(), g = actx.createGain();
+      o.frequency.value = freq; o.type = 'sine';
+      g.gain.setValueAtTime(0.15, actx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.001, actx.currentTime + 0.15);
+      o.connect(g); g.connect(actx.destination);
+      o.start(); o.stop(actx.currentTime + 0.15);
+    } catch (e) { /* 无音频环境时静默 */ }
+  }
+
+  // ---- 游戏状态 ----
+  var state = 'idle';           // idle | playing | over
+  var score = 0, timeLeft = 60, best = 0;
+  var basket = { x: 0, w: 90 };
+  var fruits = [];              // 对象池思想：定长复用，不无限 push
+  var POOL = 24;
+  for (var i = 0; i < POOL; i++) fruits.push({ active: false, x: 0, y: 0, vy: 0, r: 14 });
+  try { best = parseInt(localStorage.getItem('mg_best') || '0', 10) || 0; } catch (e) {}
+  document.getElementById('best').textContent = '最高分 ' + best;
+
+  function spawn() {
+    for (var i = 0; i < POOL; i++) {
+      var f = fruits[i];
+      if (!f.active) {
+        f.active = true;
+        f.x = 20 + Math.random() * (W - 40);
+        f.y = -20; f.vy = 2 + Math.random() * 3 + (60 - timeLeft) * 0.03; // 难度随时间提升
+        return;
+      }
+    }
+  }
+
+  // ---- 触摸控制（移动端优先） ----
+  function moveTo(clientX) { basket.x = Math.max(0, Math.min(W - basket.w, clientX - basket.w / 2)); }
+  canvas.addEventListener('touchstart', function (e) {
+    e.preventDefault();
+    moveTo(e.touches[0].clientX);
+  }, { passive: false });
+  canvas.addEventListener('touchmove', function (e) {
+    e.preventDefault();
+    moveTo(e.touches[0].clientX);
+  }, { passive: false });
+  canvas.addEventListener('pointerdown', function (e) { moveTo(e.clientX); }); // 桌面兜底
+
+  // ---- 主循环：requestAnimationFrame ----
+  var last = 0, spawnAcc = 0;
+  function loop(ts) {
+    if (state !== 'playing') return;
+    var dt = Math.min((ts - last) / 16.7, 3); last = ts;
+    timeLeft -= dt / 60;
+    spawnAcc += dt;
+    if (spawnAcc > 30) { spawnAcc = 0; spawn(); }
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    // 篮子
+    ctx.fillStyle = '#ff9f1a';
+    ctx.fillRect(basket.x, H - 60, basket.w, 24);
+    // 水果
+    for (var i = 0; i < POOL; i++) {
+      var f = fruits[i];
+      if (!f.active) continue;
+      f.y += f.vy * dt;
+      ctx.fillStyle = '#ff5a5a';
+      ctx.beginPath(); ctx.arc(f.x, f.y, f.r, 0, 6.2832); ctx.fill();
+      if (f.y > H - 60 && f.y < H - 30 && f.x > basket.x && f.x < basket.x + basket.w) {
+        f.active = false; score += 10; beep(660);   // 接到：计分
+      } else if (f.y > H + 20) {
+        f.active = false; score = Math.max(0, score - 5); beep(220); // 漏接：扣分
+      }
+    }
+    document.getElementById('score').textContent = '分数 ' + score;
+    document.getElementById('time').textContent = Math.ceil(timeLeft) + 's';
+
+    if (timeLeft <= 0) { gameOver(); return; }  // 结束条件：时间到
+    requestAnimationFrame(loop);
+  }
+
+  function gameOver() {
+    state = 'over';
+    if (score > best) {
+      best = score;
+      try { localStorage.setItem('mg_best', String(best)); } catch (e) {}
+    }
+    document.getElementById('best').textContent = '最高分 ' + best;
+    document.getElementById('title').textContent = '时间到！';
+    document.getElementById('result').textContent = '本局 ' + score + ' 分，最高分 ' + best;
+    document.getElementById('btnStart').textContent = '再来一局';
+    document.getElementById('btnShare').style.display = '';
+    document.getElementById('panel').classList.remove('hidden');
+    beep(440);
+  }
+
+  // ---- 裂变点：分享战绩（截图海报） ----
+  document.getElementById('btnShare').addEventListener('click', function () {
+    var c2 = document.getElementById('poster'); // 海报画布预置在 DOM，仅分享时绘制一次
+    var x2 = c2.getContext('2d');
+    x2.fillStyle = '#1a1a2e'; x2.fillRect(0, 0, 750, 1000);
+    x2.fillStyle = '#fff'; x2.font = 'bold 64px system-ui'; x2.textAlign = 'center';
+    x2.fillText('接水果挑战', 375, 380);
+    x2.fillStyle = '#ffd166'; x2.font = 'bold 120px system-ui';
+    x2.fillText(score + ' 分', 375, 560);
+    x2.fillStyle = '#999'; x2.font = '36px system-ui';
+    x2.fillText('你也来试试能拿几分？', 375, 680);
+    var url = c2.toDataURL('image/png');   // 战绩海报：炫耀要素
+    if (navigator.share) {
+      fetch(url).then(function (r) { return r.blob(); }).then(function (b) {
+        var file = new File([b], 'score.png', { type: 'image/png' });
+        navigator.share({ files: [file], title: '接水果挑战', text: '我在接水果拿了 ' + score + ' 分！' });
+      });
+    } else {
+      var a = document.getElementById('dl');
+      a.href = url; a.download = 'score.png'; a.click(); // 兜底：下载海报手动分享
+    }
+  });
+
+  document.getElementById('btnStart').addEventListener('click', function () {
+    score = 0; timeLeft = 60; basket.x = (W - basket.w) / 2;
+    for (var i = 0; i < POOL; i++) fruits[i].active = false;
+    document.getElementById('panel').classList.add('hidden');
+    document.getElementById('btnShare').style.display = 'none';
+    state = 'playing'; last = performance.now();
+    requestAnimationFrame(loop);
+  });
+  basket.x = (W - basket.w) / 2;
+})();
+</script>
+</body>
+</html>
